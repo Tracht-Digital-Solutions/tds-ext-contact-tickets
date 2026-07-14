@@ -1,0 +1,10 @@
+---
+// Contact-inbox page, injected via the manifest's route slot. The admin triages
+// contact-form submissions (new → handled/spam).
+import ContactInbox from "../islands/ContactInbox.tsx";
+---
+
+<section class="page page--contact">
+  <h1>Kontaktanfragen</h1>
+  <ContactInbox client:load />
+</section>
