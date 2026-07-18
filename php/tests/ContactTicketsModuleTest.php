@@ -123,4 +123,11 @@ final class ContactTicketsModuleTest extends TestCase
     {
         self::assertSame(403, $this->get($this->appWith(new FakeUser(perms: [])), '/contact/messages')->getStatusCode());
     }
+
+    public function testReplyRequiresWrite(): void
+    {
+        // Unauthenticated → 401, authenticated-but-read-only → 403, both before the repo.
+        self::assertSame(401, $this->post($this->appWith(new FakeUser(auth: false)), '/contact/messages/1/reply', ['body' => 'hi'])->getStatusCode());
+        self::assertSame(403, $this->post($this->appWith(new FakeUser(perms: ['contact:read'])), '/contact/messages/1/reply', ['body' => 'hi'])->getStatusCode());
+    }
 }

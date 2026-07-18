@@ -1,6 +1,6 @@
 {
   "name": "@tracht-digital-solutions/tds-ext-contact-tickets",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Contact-tickets extension for the TDS panel platform: public contact-form inbox (contact_message) via panel-contract.",
   "license": "UNLICENSED",
   "private": false,

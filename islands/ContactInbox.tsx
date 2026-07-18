@@ -10,16 +10,29 @@ interface Message {
   created_at: string;
 }
 
+interface Reply {
+  id: number;
+  body: string;
+  sent_by: string | null;
+  created_at: string;
+}
+
+interface MessageDetail extends Message {
+  message: string;
+  replies: Reply[];
+}
+
 const api = (path: string, init?: RequestInit) => fetch(path, { credentials: "include", ...init });
 
 /**
- * Contact-form inbox (checkpoint-1): list submissions, filter by status, and set
- * a message's status (new → handled / spam). The full detail view + email reply
- * lands in the next frontend checkpoint.
+ * Contact-form inbox (CP1: list + filter + status) and the CP2 detail view —
+ * open a message to read the full body + reply history and send an email reply
+ * (via the core Mailer; a reply moves a "new" message to "handled").
  */
 export default function ContactInbox() {
   const [messages, setMessages] = useState<Message[] | null>(null);
   const [filter, setFilter] = useState<string>("new");
+  const [openId, setOpenId] = useState<number | null>(null);
 
   const load = (status: string) =>
     api(`/contact/messages${status ? `?status=${status}` : ""}`)
@@ -39,6 +52,18 @@ export default function ContactInbox() {
     });
     load(filter);
   };
+
+  if (openId !== null) {
+    return (
+      <MessageView
+        id={openId}
+        onBack={() => {
+          setOpenId(null);
+          load(filter);
+        }}
+      />
+    );
+  }
 
   return (
     <div className="contact-inbox">
@@ -63,11 +88,13 @@ export default function ContactInbox() {
         <ul className="contact-inbox__list">
           {messages.map((m) => (
             <li key={m.id} className="contact-inbox__row">
-              <span className="contact-inbox__from">
-                <strong>{m.name}</strong> &lt;{m.email}&gt;
-                {m.company ? <em> · {m.company}</em> : null}
-              </span>
-              {m.subject ? <span className="contact-inbox__subject">{m.subject}</span> : null}
+              <button type="button" className="contact-inbox__open" onClick={() => setOpenId(m.id)}>
+                <span className="contact-inbox__from">
+                  <strong>{m.name}</strong> &lt;{m.email}&gt;
+                  {m.company ? <em> · {m.company}</em> : null}
+                </span>
+                {m.subject ? <span className="contact-inbox__subject">{m.subject}</span> : null}
+              </button>
               <span className="contact-inbox__actions">
                 {m.status !== "handled" ? (
                   <button type="button" onClick={() => setStatus(m, "handled")}>Erledigt</button>
@@ -79,6 +106,99 @@ export default function ContactInbox() {
             </li>
           ))}
         </ul>
+      )}
+    </div>
+  );
+}
+
+function MessageView({ id, onBack }: { id: number; onBack: () => void }) {
+  const [msg, setMsg] = useState<MessageDetail | null>(null);
+  const [reply, setReply] = useState("");
+  const [status, setStatus] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const load = () =>
+    api(`/contact/messages/${id}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => setMsg(d))
+      .catch(() => setMsg(null));
+
+  useEffect(() => {
+    load();
+  }, [id]);
+
+  const send = async () => {
+    if (reply.trim().length < 2) {
+      setStatus("Antwort darf nicht leer sein.");
+      return;
+    }
+    setBusy(true);
+    setStatus(null);
+    const res = await api(`/contact/messages/${id}/reply`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ body: reply }),
+    });
+    setBusy(false);
+    if (res.ok) {
+      setReply("");
+      setStatus("Antwort gesendet.");
+      load();
+    } else if (res.status === 503) {
+      setStatus("E-Mail-Versand ist nicht konfiguriert.");
+    } else {
+      setStatus(`Fehler (HTTP ${res.status}).`);
+    }
+  };
+
+  return (
+    <div className="contact-detail">
+      <button type="button" onClick={onBack}>← Posteingang</button>
+      {msg === null ? (
+        <p>Wird geladen …</p>
+      ) : (
+        <>
+          <header className="contact-detail__head">
+            <h2>{msg.subject || "Ohne Betreff"}</h2>
+            <p>
+              <strong>{msg.name}</strong> &lt;{msg.email}&gt;
+              {msg.company ? <em> · {msg.company}</em> : null}
+            </p>
+            <span className={`chip chip--${msg.status === "new" ? "warning" : msg.status === "spam" ? "danger" : "success"}`}>
+              {msg.status === "new" ? "Neu" : msg.status === "spam" ? "Spam" : "Erledigt"}
+            </span>
+          </header>
+
+          <div className="contact-detail__body">{msg.message}</div>
+
+          {msg.replies.length > 0 ? (
+            <div className="contact-detail__replies">
+              <h3>Antworten</h3>
+              <ul>
+                {msg.replies.map((r) => (
+                  <li key={r.id}>
+                    <div className="contact-detail__reply-meta">
+                      {r.sent_by ?? "Admin"} · {r.created_at}
+                    </div>
+                    <div className="contact-detail__reply-body">{r.body}</div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+
+          <div className="contact-detail__compose">
+            <h3>Antworten</h3>
+            <textarea
+              value={reply}
+              onChange={(e) => setReply(e.target.value)}
+              rows={8}
+              placeholder={`Antwort an ${msg.name} …`}
+            />
+            {status ? <p className="status-pill status-pill--info">{status}</p> : null}
+            <button type="button" onClick={send} disabled={busy}>Antwort senden</button>
+          </div>
+        </>
       )}
     </div>
   );

@@ -24,6 +24,10 @@ final class ContactTicketsModule extends AbstractModule
 {
     private const STATUSES = ['new', 'handled', 'spam'];
 
+    /** Public-form rate limit: at most N submissions per IP per window. */
+    private const RATE_MAX = 5;
+    private const RATE_WINDOW_SECONDS = 600;
+
     public function id(): string
     {
         return 'contact-tickets';
@@ -64,9 +68,15 @@ final class ContactTicketsModule extends AbstractModule
             if (mb_strlen($name) < 2 || filter_var($email, FILTER_VALIDATE_EMAIL) === false || mb_strlen($message) < 20) {
                 return self::json($res, ['error' => 'Invalid contact payload'], 422);
             }
+            $repo = $c->get(ContactRepository::class);
+            // Rate-limit the public write by hashed client IP (429 when exceeded).
+            $ipHash = self::clientIpHash($req);
+            if ($ipHash !== null && $repo->recentFromIp($ipHash, self::RATE_WINDOW_SECONDS) >= self::RATE_MAX) {
+                return self::json($res, ['error' => 'Too many requests'], 429);
+            }
             $company = self::optional($body['company'] ?? null, 200);
             $subject = self::optional($body['subject'] ?? null, 200);
-            $id = $c->get(ContactRepository::class)->create($name, $email, $company, $subject, mb_substr($message, 0, 10000));
+            $id = $repo->create($name, $email, $company, $subject, mb_substr($message, 0, 10000), $ipHash);
             self::notifyAdmin($c->get(Mailer::class), $id, $name, $email);
             return self::json($res, ['id' => $id], 201);
         });
@@ -91,11 +101,49 @@ final class ContactTicketsModule extends AbstractModule
             if (($deny = self::require($c->get(UserContext::class), 'contact:read', $res)) !== null) {
                 return $deny;
             }
-            $msg = $c->get(ContactRepository::class)->find((int) $args['id']);
+            $repo = $c->get(ContactRepository::class);
+            $msg = $repo->find((int) $args['id']);
             if ($msg === null) {
                 return self::json($res, ['error' => 'Not found'], 404);
             }
+            unset($msg['ip_hash']); // never expose the rate-limit hash
+            $msg['replies'] = $repo->replies((int) $args['id']);
             return self::json($res, $msg);
+        });
+
+        $app->post('/contact/messages/{id:[0-9]+}/reply', function (Request $req, Response $res, array $args) use ($c): Response {
+            if (($deny = self::require($c->get(UserContext::class), 'contact:write', $res)) !== null) {
+                return $deny;
+            }
+            $repo = $c->get(ContactRepository::class);
+            $id = (int) $args['id'];
+            $msg = $repo->find($id);
+            if ($msg === null) {
+                return self::json($res, ['error' => 'Not found'], 404);
+            }
+            $reply = trim((string) (((array) $req->getParsedBody())['body'] ?? ''));
+            if (mb_strlen($reply) < 2) {
+                return self::json($res, ['error' => 'reply body is required'], 422);
+            }
+            $reply = mb_substr($reply, 0, 10000);
+            $mailer = $c->get(Mailer::class);
+            if (!$mailer->isConfigured()) {
+                return self::json($res, ['error' => 'Mailer not configured'], 503);
+            }
+            $user = $c->get(UserContext::class);
+            $mailer->send(new Email(
+                (string) $msg['email'],
+                (string) $msg['name'],
+                'Re: ' . ((string) ($msg['subject'] ?? 'Ihre Anfrage')),
+                '<p>' . nl2br(htmlspecialchars($reply)) . '</p>',
+                $reply,
+            ));
+            $repo->addReply($id, $reply, $user->email() ?? ('#' . (string) ($user->userId() ?? '?')));
+            // A reply implies the message is handled.
+            if (($msg['status'] ?? '') === 'new') {
+                $repo->setStatus($id, 'handled');
+            }
+            return self::json($res, ['ok' => true], 201);
         });
 
         $app->patch('/contact/messages/{id:[0-9]+}', function (Request $req, Response $res, array $args) use ($c): Response {
@@ -133,6 +181,28 @@ final class ContactTicketsModule extends AbstractModule
             null,
             $email, // Reply-To the submitter
         ));
+    }
+
+    /**
+     * A salted hash of the client IP for rate-limiting — never the raw IP.
+     * Prefers a proxy-forwarded address (Plesk/nginx front the PHP app).
+     */
+    private static function clientIpHash(Request $req): ?string
+    {
+        $server = $req->getServerParams();
+        $ip = '';
+        $fwd = (string) ($server['HTTP_X_FORWARDED_FOR'] ?? '');
+        if ($fwd !== '') {
+            $ip = trim(explode(',', $fwd)[0]);
+        }
+        if ($ip === '') {
+            $ip = (string) ($server['REMOTE_ADDR'] ?? '');
+        }
+        if ($ip === '') {
+            return null;
+        }
+        $salt = (string) (getenv('CONTACT_RATE_SALT') ?: getenv('SETTINGS_ENCRYPTION_KEY') ?: 'tds-contact');
+        return hash('sha256', $salt . '|' . $ip);
     }
 
     private static function optional(mixed $value, int $limit): ?string

@@ -45,13 +45,46 @@ final class ContactRepository
         return $row === false ? null : $row;
     }
 
-    public function create(string $name, string $email, ?string $company, ?string $subject, string $message): int
+    /** Admin replies to a message, newest first. @return list<array<string,mixed>> */
+    public function replies(int $messageId): array
     {
         $stmt = $this->pdo->prepare(
-            'INSERT INTO contact_message (name, email, company, subject, message)
-             VALUES (:n, :e, :c, :s, :m)'
+            'SELECT id, body, sent_by, created_at FROM contact_reply
+             WHERE message_id = :id ORDER BY created_at DESC'
         );
-        $stmt->execute([':n' => $name, ':e' => $email, ':c' => $company, ':s' => $subject, ':m' => $message]);
+        $stmt->execute([':id' => $messageId]);
+        return $stmt->fetchAll();
+    }
+
+    /** Submissions from one IP hash within the trailing window (rate-limit probe). */
+    public function recentFromIp(string $ipHash, int $windowSeconds): int
+    {
+        // Cutoff computed in PHP — a placeholder inside `INTERVAL ? SECOND` is
+        // driver-fragile, a plain datetime comparison is portable.
+        $cutoff = date('Y-m-d H:i:s', time() - $windowSeconds);
+        $stmt = $this->pdo->prepare(
+            'SELECT COUNT(*) FROM contact_message WHERE ip_hash = :h AND created_at >= :cut'
+        );
+        $stmt->execute([':h' => $ipHash, ':cut' => $cutoff]);
+        return (int) $stmt->fetchColumn();
+    }
+
+    public function create(string $name, string $email, ?string $company, ?string $subject, string $message, ?string $ipHash = null): int
+    {
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO contact_message (name, email, company, subject, message, ip_hash)
+             VALUES (:n, :e, :c, :s, :m, :ip)'
+        );
+        $stmt->execute([':n' => $name, ':e' => $email, ':c' => $company, ':s' => $subject, ':m' => $message, ':ip' => $ipHash]);
+        return (int) $this->pdo->lastInsertId();
+    }
+
+    public function addReply(int $messageId, string $body, ?string $sentBy): int
+    {
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO contact_reply (message_id, body, sent_by) VALUES (:id, :b, :by)'
+        );
+        $stmt->execute([':id' => $messageId, ':b' => $body, ':by' => $sentBy]);
         return (int) $this->pdo->lastInsertId();
     }
 
