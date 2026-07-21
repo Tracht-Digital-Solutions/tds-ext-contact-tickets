@@ -1,4 +1,4 @@
-# tds-ext-contact-tickets
+# tds-ext-contact-tickets-pkg
 
 The **contact-form inbox** as a panel extension. The public marketing site's
 contact form submits to a **public endpoint**; each submission becomes a
