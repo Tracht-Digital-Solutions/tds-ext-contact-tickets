@@ -22,7 +22,10 @@ is the dedicated public inbox.
 
 ## Gotchas
 
-- Migration class name is **module-prefixed** (`ContactTickets*`).
+- Migration class names are **module-prefixed** (`ContactTickets*`) AND the
+  numeric **version prefixes are globally unique** (this module owns the
+  `20260726*` band) — every composed module's migrations share one `phinxlog`,
+  so a reused class name OR version collides. Keep new migrations in this band.
 - Routes are closures resolving `ContactRepository`/`Mailer`/`UserContext` from
   the container at request time (rebound per request by the core AuthMiddleware).
 - DB-backed tests skip without `TDS_TEST_DB_DSN`; the committed test covers the
