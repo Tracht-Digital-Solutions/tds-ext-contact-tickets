@@ -8,11 +8,11 @@ use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 use Slim\App;
 use Tds\Ext\ContactTickets\Domain\ContactRepository;
-use Tds\Panel\Contract\AbstractModule;
-use Tds\Panel\Contract\Email;
-use Tds\Panel\Contract\Mailer;
-use Tds\Panel\Contract\PermissionDef;
-use Tds\Panel\Contract\UserContext;
+use Tds\Frontend\Contract\AbstractModule;
+use Tds\Frontend\Contract\Email;
+use Tds\Frontend\Contract\Mailer;
+use Tds\Frontend\Contract\PermissionDef;
+use Tds\Frontend\Contract\UserContext;
 
 /**
  * Backend Module for the contact-form inbox. `POST /contact` is PUBLIC (the

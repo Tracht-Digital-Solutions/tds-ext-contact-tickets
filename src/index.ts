@@ -1,4 +1,4 @@
-import { defineExtension } from "@tracht-digital-solutions/tds-panel-contract";
+import { defineExtension } from "@tracht-digital-solutions/tds-frontend-contract";
 
 /**
  * Contact-tickets extension — the public **contact-form inbox**. The marketing

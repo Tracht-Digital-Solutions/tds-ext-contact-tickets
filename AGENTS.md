@@ -1,6 +1,6 @@
 # AGENTS.md — tds-ext-contact-tickets-pkg
 
-The public contact-form inbox. Read `tds-panel-contract-pkg` + `tds-core-panel-api`
+The public contact-form inbox. Read `tds-frontend-contract-pkg` + `tds-core-frontend-api`
 AGENTS first. Standalone — NOT the support-ticket system (separate `contact_message`
 table); support-tickets also has a `/tickets/contact` ingest, but this extension
 is the dedicated public inbox.
